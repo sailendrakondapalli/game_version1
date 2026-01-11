@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { ThreeModelRenderer } from '../ThreeModelRenderer';
 import { Socket } from 'socket.io-client';
 import { GAME_CONFIG } from '../config';
 
@@ -37,6 +38,7 @@ export class GameScene extends Phaser.Scene {
 
   private moveVector = { x: 0, y: 0 };
   private lastMoveTime = 0;
+  private modelRenderer: ThreeModelRenderer | null = null;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -53,6 +55,19 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setZoom(1);
 
     this.createMap();
+    // initialize Three renderer for character textures (web only)
+    if ((window as any).document) {
+      try {
+        this.modelRenderer = new ThreeModelRenderer(128, 128);
+        // load a sample gltf from public folder
+        this.modelRenderer.load('/models/Soldier.glb').then(() => {
+          console.log('GLTF loaded');
+        }).catch((e) => console.warn('GLTF load failed', e));
+      } catch (e) {
+        console.warn('Three initialization failed', e);
+        this.modelRenderer = null;
+      }
+    }
     this.safeZoneGraphics = this.add.graphics();
     this.nextSafeZoneGraphics = this.add.graphics();
 
@@ -66,6 +81,30 @@ export class GameScene extends Phaser.Scene {
       callbackScope: this,
       loop: true,
     });
+
+    // if we have a Three renderer, update its render periodically to keep textures fresh
+    if (this.modelRenderer) {
+      this.time.addEvent({
+        delay: 100,
+        callback: () => {
+          try {
+            this.modelRenderer!.render();
+            const canvas = this.modelRenderer!.canvas as HTMLCanvasElement | null;
+            if (!canvas) return;
+            // Ensure textures are added once; Phaser will read from the same canvas reference each frame
+            if (!this.textures.exists('model-self')) {
+              try { this.textures.addCanvas('model-self', canvas); } catch (e) { console.warn('addCanvas model-self failed', e); }
+            }
+            if (!this.textures.exists('model-other')) {
+              try { this.textures.addCanvas('model-other', canvas); } catch (e) { console.warn('addCanvas model-other failed', e); }
+            }
+          } catch (e) {
+            // ignore
+          }
+        },
+        loop: true,
+      });
+    }
   }
 
   createMap() {
@@ -285,7 +324,13 @@ export class GameScene extends Phaser.Scene {
   animateWalking(player: PlayerSprite, vx: number, vy: number) {
     const time = Date.now();
     const wobble = Math.sin(time * 0.01) * 2;
-    player.body.y = wobble;
+    // support both Graphics and Image
+    const b: any = player.body as any;
+    if (typeof b.setY === 'function') {
+      b.setY(wobble);
+    } else if (typeof b.y !== 'undefined') {
+      b.y = wobble;
+    }
   }
 
   createBullets(bullets: any[]) {
@@ -443,22 +488,54 @@ export class GameScene extends Phaser.Scene {
         }
 
         this.updatePlayerVisuals(playerSprite, pData);
+
       }
+
     });
+
   }
 
   createPlayer(data: any): PlayerSprite {
+    // ensure flags exist
+    data.isAlive = data.isAlive ?? true;
     const container = this.add.container(data.x, data.y);
-
-    const body = this.add.graphics();
+    let body: Phaser.GameObjects.Graphics | Phaser.GameObjects.Image;
     const isOwn = data.id === this.playerId;
-    const color = isOwn ? GAME_CONFIG.COLORS.PLAYER_SELF : GAME_CONFIG.COLORS.PLAYER_OTHER;
 
-    body.fillStyle(color, 1);
-    body.fillCircle(0, 0, 12);
+    if (this.modelRenderer) {
+      const canvas = this.modelRenderer.canvas as HTMLCanvasElement | null;
+      if (canvas) {
+        // render model once and use as texture
+        try { this.modelRenderer.render(); } catch (e) { /* ignore render errors */ }
+        const key = `model-${isOwn ? 'self' : 'other'}`;
+        if (!this.textures.exists(key)) {
+          try { this.textures.addCanvas(key, canvas); } catch (e) { console.warn('addCanvas failed in createPlayer', e); }
+        }
+        if (this.textures.exists(key)) {
+          try {
+            body = this.add.image(0, 0, key);
+            body.setDisplaySize(32, 32);
+            body.setOrigin(0.5, 0.5);
+          } catch (e) {
+            // fallback to graphics below
+            body = this.add.graphics();
+          }
+        } else {
+          body = this.add.graphics();
+        }
+      } else {
+        body = this.add.graphics();
+      }
+    } else {
+      body = this.add.graphics();
+      const color = isOwn ? GAME_CONFIG.COLORS.PLAYER_SELF : GAME_CONFIG.COLORS.PLAYER_OTHER;
 
-    body.lineStyle(2, 0x000000, 1);
-    body.strokeCircle(0, 0, 12);
+      (body as Phaser.GameObjects.Graphics).fillStyle(color, 1);
+      (body as Phaser.GameObjects.Graphics).fillCircle(0, 0, 12);
+
+      (body as Phaser.GameObjects.Graphics).lineStyle(2, 0x000000, 1);
+      (body as Phaser.GameObjects.Graphics).strokeCircle(0, 0, 12);
+    }
 
     const weapon = this.add.graphics();
     weapon.fillStyle(0x1f2937, 1);
@@ -499,9 +576,16 @@ export class GameScene extends Phaser.Scene {
     this.updateHealthBar(playerSprite.healthBar, data.health);
 
     if (!data.isAlive) {
-      playerSprite.body.clear();
-      playerSprite.body.fillStyle(GAME_CONFIG.COLORS.PLAYER_DEAD, 0.5);
-      playerSprite.body.fillCircle(0, 0, 12);
+      // Graphics has clear/fill methods; Image does not. Handle both cases.
+      const b: any = playerSprite.body as any;
+      if (typeof b.clear === 'function') {
+        b.clear();
+        b.fillStyle(GAME_CONFIG.COLORS.PLAYER_DEAD, 0.5);
+        b.fillCircle(0, 0, 12);
+      } else if (typeof b.setTint === 'function') {
+        b.setTint(0x555555);
+        b.setAlpha(0.5);
+      }
       playerSprite.weapon.setVisible(false);
     }
 
