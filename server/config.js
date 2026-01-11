@@ -1,0 +1,52 @@
+const config = {
+  PORT: process.env.PORT || 3001,
+  TICK_RATE: 30,
+  MAX_PLAYERS_PER_MATCH: 10,
+  MAP_SIZE: 2000,
+  SAFE_ZONE_SHRINK_INTERVAL: 30000,
+  SAFE_ZONE_DAMAGE: 5,
+  PLAYER_SPEED: 200,
+  BULLET_SPEED: 800,
+  MAX_VELOCITY: 300,
+  WEAPONS: {
+    PISTOL: {
+      name: 'Pistol',
+      damage: 15,
+      fireRate: 400,
+      reloadTime: 1000,
+      magazineSize: 12,
+      range: 300,
+      bulletSpeed: 600,
+    },
+    AR: {
+      name: 'Assault Rifle',
+      damage: 25,
+      fireRate: 150,
+      reloadTime: 2000,
+      magazineSize: 30,
+      range: 500,
+      bulletSpeed: 800,
+    },
+    SNIPER: {
+      name: 'Sniper',
+      damage: 80,
+      fireRate: 1200,
+      reloadTime: 2500,
+      magazineSize: 5,
+      range: 800,
+      bulletSpeed: 1200,
+    },
+    SHOTGUN: {
+      name: 'Shotgun',
+      damage: 60,
+      fireRate: 800,
+      reloadTime: 2200,
+      magazineSize: 6,
+      range: 150,
+      bulletSpeed: 500,
+      pellets: 5,
+    },
+  },
+};
+
+module.exports = config;
